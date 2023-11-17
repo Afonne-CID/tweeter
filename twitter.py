@@ -1,5 +1,6 @@
 import time
 import os
+import hashlib
 import requests
 import tweepy
 from bs4 import BeautifulSoup
@@ -109,31 +110,66 @@ def get_text_from_url(url):
     except requests.exceptions.RequestException as e:
         return f"Error: {e}"
 
-target_executions = 1500
+def save_hash(string_hash, hashed_values_set):
+    with open(hashes_file_path, 'w') as file:
+        for hashed_value in hashed_values_set:
+            file.write(f"{hashed_value}\n")
+
+def load_hashes():
+    hashes_set = set()
+    if os.path.exists(hashes_file_path):
+        with open(hashes_file_path, 'r') as file:
+            hashes_set.update(line.strip() for line in file)
+    return hashes_set
+
+def is_duplicate(string_hash):
+    hashed_values_set = load_hashes()
+    return string_hash in hashed_values_set
+
+def hash_string(input_string):
+    sha256 = hashlib.sha256()
+    sha256.update(input_string.encode('utf-8'))
+    return sha256.hexdigest()
+
 interval_seconds = 30 * 60
+hashes_file_path = 'hashes.txt'
 
 consumer_key, consumer_secret, access_token, access_token_secret = authenticate()
 
 client = tweepy.Client(consumer_key=consumer_key, consumer_secret=consumer_secret, access_token=access_token, access_token_secret=access_token_secret)
 
 while True:
+
+    print('Enters infinite loop')
+
     url = 'https://camo.githubusercontent.com/ee6d0eb34e7d561d98c8e17ead480ff34d1b75e952ea4327086698d4791c9db6/68747470733a2f2f726561646d652d6a6f6b65732e76657263656c2e6170702f6170693f7468656d653d64656661756c74'
 
     try:
-        
-        text = get_text_from_url(url)
-        response = client.create_tweet(text=text)   
+
+        hash_tweets_set = load_hashes()
+
+        tweet_text = get_text_from_url(url)
+        tweet_text_hash = hash_string(tweet_text)
+        while is_duplicate(tweet_text_hash):
+            tweet_text = get_text_from_url(url)
+            tweet_text_hash = hash_string(tweet_text)
+
+        response = client.create_tweet(text=tweet_text)
     
         print("Tweet posted. Tweet ID:", response.data['id'])
         time.sleep(interval_seconds)
+        save_hash(tweet_text_hash, hash_tweets_set)
+
     except Exception as e:
-        if 'expired' in str(e):
+        if 'expired' in str(e).lower():
             refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
-            continue
-        elif 'limit' in str(e):
-            time.sleep((60 * 6) * 24)
-        elif 'duplicate' in str(e):
-            continue
+            print('Error posting tweet, but refeshed expired token')
+        elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
+            print("24hr sleet\tError posting tweet, limit reached or too mnay requests\n", e)
+            time.sleep((60 * 60) * 24)
+        elif 'duplicate' in str(e).lower():
+            save_hash(tweet_text_hash, hash_tweets_set)
+            print('Duplicate spotted, skipping that')
         else:
-            print("Error posting tweet:", e)
-        continue
+            print('Error: ', e)
+            break
