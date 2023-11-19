@@ -2,6 +2,8 @@ import time
 import os
 import hashlib
 import requests
+import asyncio
+from jokeapi import Jokes
 import tweepy
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
@@ -110,6 +112,13 @@ def get_text_from_url(url):
     except requests.exceptions.RequestException as e:
         return f"Error: {e}"
 
+async def the_joke():
+    source = await Jokes()
+    joke = await source.get_joke(category=["programming"])
+    if joke["type"] == "single":
+        return joke["joke"]
+    return joke["setup"] + "\n" + joke["delivery"]
+
 def save_hash(string_hash, hashed_values_set):
     with open(hashes_file_path, 'w') as file:
         for hashed_value in hashed_values_set:
@@ -147,8 +156,8 @@ while True:
     try:
 
         hash_tweets_set = load_hashes()
-
-        tweet_text = get_text_from_url(url)
+        tweet_text = asyncio.run(the_joke())
+        #tweet_text = get_text_from_url(url)
         tweet_text_hash = hash_string(tweet_text)
         while is_duplicate(tweet_text_hash):
             tweet_text = get_text_from_url(url)
@@ -157,19 +166,21 @@ while True:
         response = client.create_tweet(text=tweet_text)
     
         print("Tweet posted. Tweet ID:", response.data['id'])
-        time.sleep(interval_seconds)
+        
         save_hash(tweet_text_hash, hash_tweets_set)
+        time.sleep(interval_seconds)
 
     except Exception as e:
         if 'expired' in str(e).lower():
             refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
             print('Error posting tweet, but refeshed expired token')
         elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
-            print("24hr sleet\tError posting tweet, limit reached or too mnay requests\n", e)
-            time.sleep((60 * 60) * 24)
+            print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
+            time.sleep((60 * 60) * 2)
         elif 'duplicate' in str(e).lower():
             save_hash(tweet_text_hash, hash_tweets_set)
             print('Duplicate spotted, skipping that')
+            time.sleep(5 * 60)
         else:
             print('Error: ', e)
             break
