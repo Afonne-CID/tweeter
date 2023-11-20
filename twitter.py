@@ -112,12 +112,39 @@ def get_text_from_url(url):
     except requests.exceptions.RequestException as e:
         return f"Error: {e}"
 
+
 async def the_joke():
     source = await Jokes()
     joke = await source.get_joke(category=["programming"])
+    
+    def split_into_chunks(text):
+        # Split the text into chunks with complete sentences
+        chunks = []
+        words = text.split()
+        current_chunk = words[0]
+
+        for word in words[1:]:
+            if len(current_chunk) + len(word) + 1 <= 279:  # +1 for space
+                current_chunk += ' ' + word
+            else:
+                chunks.append(current_chunk)
+                current_chunk = word
+
+        # Add the last chunk
+        chunks.append(current_chunk)
+
+        return chunks
+
     if joke["type"] == "single":
-        return joke["joke"]
-    return joke["setup"] + "\n" + joke["delivery"]
+        if len(joke["joke"]) >= 279:
+            return split_into_chunks(joke["joke"])
+        return [joke["joke"]]
+
+    double_joke = joke["setup"] + "\n\n" + joke["delivery"]
+    if len(double_joke) >= 279:
+        return split_into_chunks(double_joke)
+    return [double_joke]
+
 
 def save_hash(string_hash, hashed_values_set):
     with open(hashes_file_path, 'w') as file:
@@ -155,19 +182,15 @@ while True:
 
     try:
 
-        hash_tweets_set = load_hashes()
-        tweet_text = asyncio.run(the_joke())
+        tweets = asyncio.run(the_joke())
         #tweet_text = get_text_from_url(url)
-        tweet_text_hash = hash_string(tweet_text)
-        while is_duplicate(tweet_text_hash):
-            tweet_text = get_text_from_url(url)
-            tweet_text_hash = hash_string(tweet_text)
+        response = client.create_tweet(text=tweets[0])
+        tweet_id = response.data['id']
+        for tweet in tweets[1:]:
+            response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+            tweet_id = response.data['id']
 
-        response = client.create_tweet(text=tweet_text)
-    
         print("Tweet posted. Tweet ID:", response.data['id'])
-        
-        save_hash(tweet_text_hash, hash_tweets_set)
         time.sleep(interval_seconds)
 
     except Exception as e:
@@ -178,7 +201,6 @@ while True:
             print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
             time.sleep((60 * 60) * 2)
         elif 'duplicate' in str(e).lower():
-            save_hash(tweet_text_hash, hash_tweets_set)
             print('Duplicate spotted, skipping that')
             time.sleep(5 * 60)
         else:
