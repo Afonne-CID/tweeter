@@ -1,3 +1,4 @@
+import random
 import time
 import os
 import hashlib
@@ -150,6 +151,7 @@ def save_hash(string_hash, hashed_values_set):
     with open(hashes_file_path, 'w') as file:
         for hashed_value in hashed_values_set:
             file.write(f"{hashed_value}\n")
+        file.write(f"{string_hash}\n")
 
 def load_hashes():
     hashes_set = set()
@@ -182,15 +184,28 @@ while True:
 
     try:
 
-        tweets = asyncio.run(the_joke())
-        #tweet_text = get_text_from_url(url)
-        response = client.create_tweet(text=tweets[0])
-        tweet_id = response.data['id']
-        for tweet in tweets[1:]:
-            response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+        frt_text = asyncio.run(the_joke())
+        scnd_text = get_text_from_url(url)
+        tweets = [[scnd_text], frt_text]
+        tweets = tweets[random.randint(0, 1)]
+        hashed = hash_string(tweets[0])
+        tweet = tweets[0]
+        if not is_duplicate(hashed):
+            response = client.create_tweet(text=tweet)
             tweet_id = response.data['id']
+            hashed_tweets = load_hashes()
+            save_hash(hashed, hashed_tweets)
+            for tweet in tweets[1:]:
+                next_hashed = hash_string(tweet)
+                if not is_duplicate(next_hashed):
+                    response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+                    tweet_id = response.data['id']
+                    tweet_hashes = load_hashes()
+                    save_hash(next_hashed, tweet_hashes)
+                else:
+                    continue
 
-        print("Tweet posted. Tweet ID:", response.data['id'])
+                print("Tweet posted. Tweet ID:", response.data['id'])
         time.sleep(interval_seconds)
 
     except Exception as e:
@@ -202,6 +217,8 @@ while True:
             time.sleep((60 * 60) * 2)
         elif 'duplicate' in str(e).lower():
             print('Duplicate spotted, skipping that')
+            dup_tweets = load_hashes()
+            save_hash(hash_string(tweet), dup_tweets)
             time.sleep(5 * 60)
         else:
             print('Error: ', e)
