@@ -1,14 +1,15 @@
-import os
-import json
+import random
 import time
-import base64
+import os
+import hashlib
 import requests
-from requests_oauthlib import OAuth1Session
-from dotenv import load_dotenv
+import asyncio
+from jokeapi import Jokes
+import tweepy
 from bs4 import BeautifulSoup
+from dotenv import load_dotenv
 
 load_dotenv()
-
 
 def get_text_from_url(url):
     try:
@@ -26,113 +27,17 @@ def get_text_from_url(url):
     except requests.exceptions.RequestException as e:
         return f"Error: {e}"
 
-
-def authenticate_v2():
-    CREDENTIALS_FILE = 'twitter_credentials.json'
-    if os.path.exists(CREDENTIALS_FILE):
-        with open(CREDENTIALS_FILE, 'r', encoding='utf-8') as file:
-            cred = json.load(file)
-            return cred['CONSUMER_KEY'], cred['CONSUMER_SECRET'], cred['USER_CONTEXT_TOKEN']
-                                                    
-    CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
-    CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
-
-    if CONSUMER_KEY is None or CONSUMER_SECRET is None:
-        print('CONSUMER_KEY or CONSUMER_SECRET cannot be None')
-
-    user_context_token = get_user_context_token(CONSUMER_KEY, CONSUMER_SECRET)
-
-    if user_context_token:
-        save_user_context_token(CREDENTIALS_FILE, CONSUMER_KEY, CONSUMER_SECRET, user_context_token)
-        return CONSUMER_KEY, CONSUMER_SECRET, user_context_token
-
-def get_user_context_token(CONSUMER_KEY, CONSUMER_SECRET):
-    USER_CONTEXT_ENDPOINT = 'https://api.twitter.com/oauth2/token'
-    
-    bearer_credentials = f'{CONSUMER_KEY}:{CONSUMER_SECRET}'
-    base64_encoded_credentials = base64.b64encode(bearer_credentials.encode('utf-8')).decode('utf-8')
-
-    headers = {
-            'Authorization': f'Basic {base64_encoded_credentials}',
-            'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-            }
-
-    data = {
-            'grant_type': 'client_credentials'
-            }
-
-    response = requests.post(USER_CONTEXT_ENDPOINT, headers=headers, data=data)
-
-    if response.status_code == 200:
-          return response.json().get('access_token')
-    else:
-        print(f'Failed to authenticate. Status code: {response.status_code}')
-        return None
-
-def save_user_context_token(file_path, CONSUMER_KEY, CONSUMER_SECRET, user_context_token):
-    with open(file_path, 'w', encoding='utf-8') as file:
-        json.dump({
-            'CONSUMER_KEY': CONSUMER_KEY,
-            'CONSUMER_SECRET': CONSUMER_SECRET,
-            'USER_CONTEXT_TOKEN': user_context_token
-            }, file)
-
-def post_tweet_v2(tweet_text):
-    TWEET_ENDPOINT = 'https://api.twitter.com/2/tweets'
-    api_key, api_secret_key, user_context_token = authenticate_v2()
-    
-    headers = {
-                                                                                 'Authorization': f'Bearer {user_context_token}',
-                                                                                 'Content-Type': 'application/json',
-                                                                                 }
-
-    tweet_data = {
-            'status': tweet_text
-            }
-    
-    response = requests.post(TWEET_ENDPOINT, headers=headers, json=tweet_data)
-    
-    if response.status_code == 201:
-        print('Tweet posted successfully!')
-    else:
-       print(f'Failed to post tweet. Status code: {response.status_code}\n{response.text}')
-
-    return response
-
-def post_tweet(url):
-    consumer_key, consumer_secret, access_token, access_secret = authenticate()
-    text = url#get_text_from_url(url)
-    tweet_url = 'https://api.twitter.com/2/tweets'
-    tweet_params = {'tweet.fields': text}
-
-    auth = OAuth1Session(
-                    consumer_key,
-                    client_secret=consumer_secret,
-                    resource_owner_key=access_token,
-                    resource_owner_secret=access_secret
-                   )
-
-    response = auth.post(tweet_url, params=tweet_params)
-
-    if response.status_code == 200:
-        print('Tweet posted successfully!')
-        return response
-    else:
-        print(f'Failed to tweet. {response.text}\n Status code: {response.status_code}')
-        return response
-
 def authenticate():
-    CREDENTIALS_FILE = 'twitter_credentials.json'
-    if os.path.exists(CREDENTIALS_FILE):
-        with open(CREDENTIALS_FILE, 'r', encoding='utf-8') as file:
-            cred = json.load(file)
-            return cred['CONSUMER_KEY'], cred['CONSUMER_SECRET'], cred['ACCESS_TOKEN'], cred['ACCESS_SECRET']
-
     CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
     CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
 
     if CONSUMER_KEY is None or CONSUMER_SECRET is None:
         print('CONSUMER_KEY or CONSUMER_SECRET cannot be none')
+    else:
+        ACCESS_TOKEN = os.environ.get('ACCESS_TOKEN')
+        ACCESS_SECRET = os.environ.get('ACCESS_SECRET')
+        if (ACCESS_TOKEN is not None) and (ACCESS_SECRET is not None):
+            return CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_SECRET
     
     request_token_url = 'https://api.twitter.com/oauth/request_token?oauth_callback=oob&x_auth_access_type=write'
     oauth = OAuth1Session(CONSUMER_KEY, client_secret=CONSUMER_SECRET)
@@ -162,22 +67,159 @@ def authenticate():
     access_secret = oauth_tokens['oauth_token_secret']
 
     # Save the credentials to file
-    with open(CREDENTIALS_FILE, 'w', encoding='utf-8') as file:
-        json.dump({
-                'CONSUMER_KEY': CONSUMER_KEY,
-                'CONSUMER_SECRET': CONSUMER_SECRET,
-                'ACCESS_TOKEN': access_token,
-                'ACCESS_SECRET': access_secret
-            }, file)
+    with open('.env', 'w', encoding='utf-8') as file:
+        file.write(f'CONSUMER_KEY={CONSUMER_KEY}\n')
+        file.write(f'CONSUMER_SECRET={CONSUMER_SECRET}\n')
+        file.write(f'ACCESS_TOKEN={access_token}\n')
+        file.write(f'ACCESS_SECRET={access_secret}')
+    
     return CONSUMER_KEY, CONSUMER_SECRET, access_token, access_secret
 
-target_executions = 1500
-interval_seconds = 30 * 60
+def refresh_token(consumer_key, consumer_secret, access_token, access_secret_token):
+    refresh_url = 'https://api.twitter.com/oauth/request_token'
+    oauth = OAuth1Session(
+            consumer_key,
+            client_secret=consumer_secret,
+            resource_owner_key=resource_owner_key,
+            resource_owner_secret=access_token_secret,
+            )
+    response = oauth.post(refresh_url, data={'grant_type': 'client_credentials'})
+    if response.status_code == 200:
+        new_access_token = response.json().get('access_token')
 
-for _ in range(target_executions):
+        with open('.env', 'w', encoding='utf-8') as file:
+            file.write(f'CONSUMER_KEY={consumer_key}\n')
+            file.write(f'CONSUMER_SECRET={consumer_secret}\n')
+            file.write(f'ACCESS_TOKEN={new_access_token}\n')
+            file.write(f'ACCESS_SECRET={access_token_secret}')   
+        return consumer_key, consumer_secret, new_access_token, access_secret_token
+    else:
+       print('Failed to referesh token', response)
+       return None
+
+def get_text_from_url(url):
+    try:
+        # Fetch the HTML content of the URL
+        response = requests.get(url)
+        response.raise_for_status()
+
+        # Parse HTML content with BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Extract text
+        text = soup.get_text()
+        return text
+    
+    except requests.exceptions.RequestException as e:
+        return f"Error: {e}"
+
+
+async def the_joke():
+    source = await Jokes()
+    joke = await source.get_joke(category=["programming"])
+    
+    def split_into_chunks(text):
+        # Split the text into chunks with complete sentences
+        chunks = []
+        words = text.split()
+        current_chunk = words[0]
+
+        for word in words[1:]:
+            if len(current_chunk) + len(word) + 1 <= 279:  # +1 for space
+                current_chunk += ' ' + word
+            else:
+                chunks.append(current_chunk)
+                current_chunk = word
+
+        # Add the last chunk
+        chunks.append(current_chunk)
+
+        return chunks
+
+    if joke["type"] == "single":
+        if len(joke["joke"]) >= 279:
+            return split_into_chunks(joke["joke"])
+        return [joke["joke"]]
+
+    double_joke = joke["setup"] + "\n\n" + joke["delivery"]
+    if len(double_joke) >= 279:
+        return split_into_chunks(double_joke)
+    return [double_joke]
+
+
+def save_hash(string_hash, hashed_values_set):
+    with open(hashes_file_path, 'w') as file:
+        for hashed_value in hashed_values_set:
+            file.write(f"{hashed_value}\n")
+        file.write(f"{string_hash}\n")
+
+def load_hashes():
+    hashes_set = set()
+    if os.path.exists(hashes_file_path):
+        with open(hashes_file_path, 'r') as file:
+            hashes_set.update(line.strip() for line in file)
+    return hashes_set
+
+def is_duplicate(string_hash):
+    hashed_values_set = load_hashes()
+    return string_hash in hashed_values_set
+
+def hash_string(input_string):
+    sha256 = hashlib.sha256()
+    sha256.update(input_string.encode('utf-8'))
+    return sha256.hexdigest()
+
+interval_seconds = 30 * 60
+hashes_file_path = 'hashes.txt'
+
+consumer_key, consumer_secret, access_token, access_token_secret = authenticate()
+
+client = tweepy.Client(consumer_key=consumer_key, consumer_secret=consumer_secret, access_token=access_token, access_token_secret=access_token_secret)
+
+while True:
+
+    print('Enters infinite loop')
+
     url = 'https://camo.githubusercontent.com/ee6d0eb34e7d561d98c8e17ead480ff34d1b75e952ea4327086698d4791c9db6/68747470733a2f2f726561646d652d6a6f6b65732e76657263656c2e6170702f6170693f7468656d653d64656661756c74'
 
-    response = post_tweet('Tweeted')
-    if response.status_code != 201:
-        break
-    time.sleep(interval_seconds)
+    try:
+
+        frt_text = asyncio.run(the_joke())
+        scnd_text = get_text_from_url(url)
+        tweets = [[scnd_text], frt_text]
+        tweets = tweets[random.randint(0, 1)]
+        hashed = hash_string(tweets[0])
+        tweet = tweets[0]
+        if not is_duplicate(hashed):
+            response = client.create_tweet(text=tweet)
+            tweet_id = response.data['id']
+            hashed_tweets = load_hashes()
+            save_hash(hashed, hashed_tweets)
+            for tweet in tweets[1:]:
+                next_hashed = hash_string(tweet)
+                if not is_duplicate(next_hashed):
+                    response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+                    tweet_id = response.data['id']
+                    tweet_hashes = load_hashes()
+                    save_hash(next_hashed, tweet_hashes)
+                else:
+                    continue
+
+                print("Tweet posted. Tweet ID:", response.data['id'])
+        time.sleep(interval_seconds)
+
+    except Exception as e:
+        if 'expired' in str(e).lower():
+            refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
+            print('Error posting tweet, but refeshed expired token')
+        elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
+            print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
+            time.sleep((60 * 60) * 2)
+        elif 'duplicate' in str(e).lower():
+            print('Duplicate spotted, skipping that')
+            dup_tweets = load_hashes()
+            save_hash(hash_string(tweet), dup_tweets)
+            time.sleep(5 * 60)
+        else:
+            print('Error: ', e)
+            break
