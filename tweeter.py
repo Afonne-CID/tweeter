@@ -184,28 +184,35 @@ while True:
 
     try:
 
-        frt_text = asyncio.run(the_joke())
-        scnd_text = get_text_from_url(url)
-        tweets = [[scnd_text], frt_text]
-        tweets = tweets[random.randint(0, 1)]
-        hashed = hash_string(tweets[0])
+        while True:
+            frt_text = asyncio.run(the_joke())
+            scnd_text = get_text_from_url(url)
+            tweets = [[scnd_text], frt_text]
+            tweets = tweets[random.randint(0, 1)]
+            hashed = hash_string(tweets[0])
+            
+            if is_duplicate(hashed):
+                continue
+            else:
+                break
         tweet = tweets[0]
-        if not is_duplicate(hashed):
-            response = client.create_tweet(text=tweet)
-            tweet_id = response.data['id']
-            hashed_tweets = load_hashes()
-            save_hash(hashed, hashed_tweets)
-            for tweet in tweets[1:]:
-                next_hashed = hash_string(tweet)
-                if not is_duplicate(next_hashed):
-                    response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
-                    tweet_id = response.data['id']
-                    tweet_hashes = load_hashes()
-                    save_hash(next_hashed, tweet_hashes)
-                else:
-                    continue
+        
+        response = client.create_tweet(text=tweet)
+        tweet_id = response.data['id']
+        hashed_tweets = load_hashes()
+        save_hash(hashed, hashed_tweets)
+        for tweet in tweets[1:]:
+            next_hashed = hash_string(tweet)
+            if not is_duplicate(next_hashed):
+                response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+                tweet_id = response.data['id']
+                tweet_hashes = load_hashes()
+                save_hash(next_hashed, tweet_hashes)
+            else:
+                continue
 
-                print("Tweet posted. Tweet ID:", response.data['id'])
+            print("Tweet posted. Tweet ID:", response.data['id'])
+
         time.sleep(interval_seconds)
 
     except Exception as e:
