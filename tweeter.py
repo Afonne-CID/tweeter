@@ -184,6 +184,7 @@ while True:
 
     try:
 
+        tweets = []
         while True:
             frt_text = asyncio.run(the_joke())
             scnd_text = get_text_from_url(url)
@@ -215,18 +216,24 @@ while True:
 
         time.sleep(interval_seconds)
 
+    except KeyError as e:
+        os.remove('output.log')
+        pass
     except Exception as e:
         if 'expired' in str(e).lower():
+            os.remove('output.log')
             refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
             print('Error posting tweet, but refeshed expired token')
         elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
+            os.remote('output.log')
             print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
             time.sleep((60 * 60) * 2)
         elif 'duplicate' in str(e).lower():
+            os.remove('output.log')
             print('Duplicate spotted, skipping that')
             dup_tweets = load_hashes()
             save_hash(hash_string(tweet), dup_tweets)
             time.sleep(5 * 60)
         else:
-            print('Error: ', e)
+            raise e
             break
