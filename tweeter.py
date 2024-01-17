@@ -11,21 +11,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def get_text_from_url(url):
-    try:
-        # Fetch the HTML content of the URL
-        response = requests.get(url)
-        response.raise_for_status()
-
-        # Parse HTML content with BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Extract text
-        text = soup.get_text()
-        return text
-    
-    except requests.exceptions.RequestException as e:
-        return f"Error: {e}"
 
 def authenticate():
     CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
@@ -101,7 +86,6 @@ def get_text_from_url(url):
     try:
         # Fetch the HTML content of the URL
         response = requests.get(url)
-        response.raise_for_status()
 
         # Parse HTML content with BeautifulSoup
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -113,38 +97,24 @@ def get_text_from_url(url):
     except requests.exceptions.RequestException as e:
         return f"Error: {e}"
 
+   
+def split_into_chunks(text):
+    # Split the text into chunks with complete sentences
+    chunks = []
+    words = text.split()
+    current_chunk = words[0]
 
-async def the_joke():
-    source = await Jokes()
-    joke = await source.get_joke(category=["programming"])
-    
-    def split_into_chunks(text):
-        # Split the text into chunks with complete sentences
-        chunks = []
-        words = text.split()
-        current_chunk = words[0]
+    for word in words[1:]:
+        if len(current_chunk) + len(word) + 1 <= 279:  # +1 for space
+            current_chunk += ' ' + word
+        else:
+            chunks.append(current_chunk)
+            current_chunk = word
 
-        for word in words[1:]:
-            if len(current_chunk) + len(word) + 1 <= 279:  # +1 for space
-                current_chunk += ' ' + word
-            else:
-                chunks.append(current_chunk)
-                current_chunk = word
+    # Add the last chunk
+    chunks.append(current_chunk)
 
-        # Add the last chunk
-        chunks.append(current_chunk)
-
-        return chunks
-
-    if joke["type"] == "single":
-        if len(joke["joke"]) >= 279:
-            return split_into_chunks(joke["joke"])
-        return [joke["joke"]]
-
-    double_joke = joke["setup"] + "\n\n" + joke["delivery"]
-    if len(double_joke) >= 279:
-        return split_into_chunks(double_joke)
-    return [double_joke]
+    return chunks
 
 
 def save_hash(string_hash, hashed_values_set):
@@ -179,60 +149,72 @@ client = tweepy.Client(consumer_key=consumer_key, consumer_secret=consumer_secre
 while True:
 
     print('Enters infinite loop')
-
-    url = 'https://camo.githubusercontent.com/ee6d0eb34e7d561d98c8e17ead480ff34d1b75e952ea4327086698d4791c9db6/68747470733a2f2f726561646d652d6a6f6b65732e76657263656c2e6170702f6170693f7468656d653d64656661756c74'
+    tweet_post = ''
 
     try:
 
         tweets = []
-        while True:
-            frt_text = asyncio.run(the_joke())
-            scnd_text = get_text_from_url(url)
-            tweets = [[scnd_text], frt_text]
-            tweets = tweets[random.randint(0, 1)]
-            hashed = hash_string(tweets[0])
-            
-            if is_duplicate(hashed):
-                continue
+
+        # Source one
+        async def the_joke():
+            source = await Jokes()
+            joke = await source.get_joke(category=["programming"])
+
+            joke_text = ''
+            if joke["type"] == "single":
+               joke_text = joke["joke"]
             else:
-                break
-        tweet = tweets[0]
-        
-        response = client.create_tweet(text=tweet)
-        tweet_id = response.data['id']
-        hashed_tweets = load_hashes()
-        save_hash(hashed, hashed_tweets)
-        for tweet in tweets[1:]:
-            next_hashed = hash_string(tweet)
-            if not is_duplicate(next_hashed):
+                joke_text = joke["setup"] + "\n\n" + joke["delivery"]
+                
+            hashed = hash_string(joke_text)
+            if not is_duplicate(hashed) and len(joke_text) > 4:
+                tweets.append(joke_text)
+ 
+        # Source two
+        url = "https://backend-omega-seven.vercel.app/api/getjoke"
+        payload, headers = {}, {}
+        response = requests.request("GET", url, headers=headers, data=payload)
+
+        response.raise_for_status()
+            
+        result = response.text
+        hashed = hash_string(result)
+        if not is_duplicate(hashed) and len(result) > 4:
+            tweets.append(result)
+
+        for tweet in tweets:            
+            tweet_post = tweet
+            tweet_chunks = split_into_chunks(tweet_post)
+
+            response = client.create_tweet(text=tweet[0])
+            first_tweet_id = tweet_id = response.data['id']
+            
+            hashed_tweets = load_hashes()
+            hashed = hash_string(tweet[0])
+            save_hash(hashed, hashed_tweets)
+
+            for thread_tweet in tweet_chunks[1:]:
+                next_hashed = hash_string(thread_tweet)
                 response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
                 tweet_id = response.data['id']
                 tweet_hashes = load_hashes()
                 save_hash(next_hashed, tweet_hashes)
-            else:
-                continue
 
-            print("Tweet posted. Tweet ID:", response.data['id'])
+            print("Tweet posted. Tweet ID:", first_tweet_id)
 
         time.sleep(interval_seconds)
 
-    except KeyError as e:
-        os.remove('output.log')
-        pass
     except Exception as e:
         if 'expired' in str(e).lower():
-            os.remove('output.log')
             refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
             print('Error posting tweet, but refeshed expired token')
         elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
-            os.remote('output.log')
             print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
             time.sleep((60 * 60) * 2)
         elif 'duplicate' in str(e).lower():
-            os.remove('output.log')
             print('Duplicate spotted, skipping that')
             dup_tweets = load_hashes()
-            save_hash(hash_string(tweet), dup_tweets)
+            save_hash(hash_string(tweet_post), dup_tweets)
             time.sleep(5 * 60)
         else:
             raise e
