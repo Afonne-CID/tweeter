@@ -190,17 +190,13 @@ async def main():
                 continue
 
             for tweet in tweets:            
-                tweet_post = tweet
 
+                tweet_post = tweet
                 tweet_chunks = split_into_chunks(tweet_post)
 
-                response = client.create_tweet(text=tweet[0])
+                response = client.create_tweet(text=tweet_chunks[0])
                 first_tweet_id = tweet_id = response.data['id']
                 
-                hashed_tweets = load_hashes()
-                hashed = hash_string(tweet[0])
-                save_hash(hashed, hashed_tweets)
-
                 for thread_tweet in tweet_chunks[1:]:
                     next_hashed = hash_string(thread_tweet)
                     response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
