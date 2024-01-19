@@ -1,6 +1,7 @@
+import os
+import json
 import random
 import time
-import os
 import hashlib
 import requests
 import asyncio
@@ -113,9 +114,23 @@ def split_into_chunks(text):
 
     # Add the last chunk
     chunks.append(current_chunk)
-
     return chunks
 
+async def the_joke():
+    source = await Jokes()
+    joke = await source.get_joke(category=["programming"])
+
+    joke_text = ''
+    if joke["type"] == "single":
+       joke_text = joke["joke"]
+    else:
+        joke_text = f"{joke['setup']}\n\n{joke['delivery']}"
+        
+    hashed = hash_string(joke_text)
+    if is_duplicate(hashed):
+        print('That was a duplicate by the_joke :-)')
+    
+    return joke_text
 
 def save_hash(string_hash, hashed_values_set):
     with open(hashes_file_path, 'w') as file:
@@ -146,76 +161,71 @@ consumer_key, consumer_secret, access_token, access_token_secret = authenticate(
 
 client = tweepy.Client(consumer_key=consumer_key, consumer_secret=consumer_secret, access_token=access_token, access_token_secret=access_token_secret)
 
-while True:
 
-    print('Enters infinite loop')
-    tweet_post = ''
+async def main():
+    
+    while True:
+        tweet_post = ''
+        try:
 
-    try:
+            tweets = []
 
-        tweets = []
+            # Source one
+            joke = await the_joke()
+            tweets.append(joke)
 
-        # Source one
-        async def the_joke():
-            source = await Jokes()
-            joke = await source.get_joke(category=["programming"])
+            # Source two
+            url = "https://backend-omega-seven.vercel.app/api/getjoke"
+            payload, headers = {}, {}
+            response = requests.request("GET", url, headers=headers, data=payload)
 
-            joke_text = ''
-            if joke["type"] == "single":
-               joke_text = joke["joke"]
-            else:
-                joke_text = joke["setup"] + "\n\n" + joke["delivery"]
+            result = json.loads(response.text)[0]
+            
+            json_to_dict = f"{result['question']}\n\n{result['punchline']}"
+            hashed = hash_string(json_to_dict)
+            if not is_duplicate(hashed):
+                tweets.append(json_to_dict)
+
+            if len(tweets) <= 0:
+                continue
+
+            for tweet in tweets:            
+                tweet_post = tweet
+
+                tweet_chunks = split_into_chunks(tweet_post)
+
+                response = client.create_tweet(text=tweet[0])
+                first_tweet_id = tweet_id = response.data['id']
                 
-            hashed = hash_string(joke_text)
-            if not is_duplicate(hashed) and len(joke_text) > 4:
-                tweets.append(joke_text)
- 
-        # Source two
-        url = "https://backend-omega-seven.vercel.app/api/getjoke"
-        payload, headers = {}, {}
-        response = requests.request("GET", url, headers=headers, data=payload)
+                hashed_tweets = load_hashes()
+                hashed = hash_string(tweet[0])
+                save_hash(hashed, hashed_tweets)
 
-        response.raise_for_status()
-            
-        result = response.text
-        hashed = hash_string(result)
-        if not is_duplicate(hashed) and len(result) > 4:
-            tweets.append(result)
+                for thread_tweet in tweet_chunks[1:]:
+                    next_hashed = hash_string(thread_tweet)
+                    response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+                    tweet_id = response.data['id']
+                    tweet_hashes = load_hashes()
+                    save_hash(next_hashed, tweet_hashes)
 
-        for tweet in tweets:            
-            tweet_post = tweet
-            tweet_chunks = split_into_chunks(tweet_post)
+                print("Tweet posted. Tweet ID:", first_tweet_id)
 
-            response = client.create_tweet(text=tweet[0])
-            first_tweet_id = tweet_id = response.data['id']
-            
-            hashed_tweets = load_hashes()
-            hashed = hash_string(tweet[0])
-            save_hash(hashed, hashed_tweets)
+            time.sleep(interval_seconds)
 
-            for thread_tweet in tweet_chunks[1:]:
-                next_hashed = hash_string(thread_tweet)
-                response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
-                tweet_id = response.data['id']
-                tweet_hashes = load_hashes()
-                save_hash(next_hashed, tweet_hashes)
+        except Exception as e:
+            if 'expired' in str(e).lower():
+                refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
+                print('Error posting tweet, but refeshed expired token')
+            elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
+                print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
+                time.sleep((60 * 60) * 2)
+            elif 'duplicate' in str(e).lower():
+                print('Duplicate spotted, skipping that')
+                dup_tweets = load_hashes()
+                save_hash(hash_string(tweet_post), dup_tweets)
+                time.sleep(5 * 60)
+            else:
+                raise e
+                break
 
-            print("Tweet posted. Tweet ID:", first_tweet_id)
-
-        time.sleep(interval_seconds)
-
-    except Exception as e:
-        if 'expired' in str(e).lower():
-            refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
-            print('Error posting tweet, but refeshed expired token')
-        elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
-            print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
-            time.sleep((60 * 60) * 2)
-        elif 'duplicate' in str(e).lower():
-            print('Duplicate spotted, skipping that')
-            dup_tweets = load_hashes()
-            save_hash(hash_string(tweet_post), dup_tweets)
-            time.sleep(5 * 60)
-        else:
-            raise e
-            break
+asyncio.run(main())
