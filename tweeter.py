@@ -195,16 +195,13 @@ async def main():
                 tweet_chunks = split_into_chunks(tweet_post)
 
                 response = client.create_tweet(text=tweet_chunks[0])
-                first_tweet_id = tweet_id = response.data['id']
+                tweet_id = response.data['id']
                 
                 for thread_tweet in tweet_chunks[1:]:
-                    next_hashed = hash_string(thread_tweet)
                     response = client.create_tweet(text=thread_tweet, in_reply_to_tweet_id=tweet_id)
                     tweet_id = response.data['id']
-                    tweet_hashes = load_hashes()
-                    save_hash(next_hashed, tweet_hashes)
 
-                print("Tweet posted. Tweet ID:", first_tweet_id)
+                print("Tweet posted. Tweet ID:", tweet_id)
 
             time.sleep(interval_seconds)
 
