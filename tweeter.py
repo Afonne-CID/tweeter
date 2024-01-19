@@ -199,7 +199,7 @@ async def main():
                 
                 for thread_tweet in tweet_chunks[1:]:
                     next_hashed = hash_string(thread_tweet)
-                    response = client.create_tweet(text=tweet, in_reply_to_tweet_id=tweet_id)
+                    response = client.create_tweet(text=thread_tweet, in_reply_to_tweet_id=tweet_id)
                     tweet_id = response.data['id']
                     tweet_hashes = load_hashes()
                     save_hash(next_hashed, tweet_hashes)
