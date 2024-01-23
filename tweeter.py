@@ -218,7 +218,6 @@ async def main():
                 save_hash(hash_string(tweet_post), dup_tweets)
                 time.sleep(5 * 60)
             else:
-                raise e
-                break
+                raise error
 
 asyncio.run(main())
