@@ -181,6 +181,8 @@ async def main():
             payload, headers = {}, {}
             response = requests.request("GET", url, headers=headers, data=payload)
 
+            response.raise_for_status()
+
             result = json.loads(response.text)[0]
             
             json_to_dict = f"{result['question']}\n\n{result['punchline']}"
@@ -207,6 +209,9 @@ async def main():
 
             time.sleep(interval_seconds)
 
+        except requests.exceptions.HTTPError as error:
+            print('There was a HTTP error', error)
+            pass
         except Exception as error:
             if 'expired' in str(error).lower():
                 refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
@@ -219,8 +224,6 @@ async def main():
                 dup_tweets = load_hashes()
                 save_hash(hash_string(tweet_post), dup_tweets)
                 time.sleep(5 * 60)
-            elif error is None:
-                pass
             else:
                 raise error
 
