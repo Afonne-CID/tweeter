@@ -129,6 +129,7 @@ async def the_joke():
     hashed = hash_string(joke_text)
     if is_duplicate(hashed):
         print('That was a duplicate by the_joke :-)')
+        return None
     
     return joke_text
 
