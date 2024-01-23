@@ -205,18 +205,20 @@ async def main():
 
             time.sleep(interval_seconds)
 
-        except Exception as e:
-            if 'expired' in str(e).lower():
+        except Exception as error:
+            if 'expired' in str(error).lower():
                 refresh_token(consumer_key, consumer_secret, access_token, access_secret_token)
                 print('Error posting tweet, but refeshed expired token')
-            elif 'limit' in str(e).lower() or 'too many' in str(e).lower():
-                print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", e)
+            elif 'limit' in str(error).lower() or 'too many' in str(error).lower():
+                print("2hrs sleet\tError posting tweet, limit reached or too mnay requests\n", error)
                 time.sleep((60 * 60) * 2)
-            elif 'duplicate' in str(e).lower():
+            elif 'duplicate' in str(error).lower():
                 print('Duplicate spotted, skipping that')
                 dup_tweets = load_hashes()
                 save_hash(hash_string(tweet_post), dup_tweets)
                 time.sleep(5 * 60)
+            elif error is None:
+                pass
             else:
                 raise error
 
