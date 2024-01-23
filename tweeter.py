@@ -173,7 +173,8 @@ async def main():
 
             # Source one
             joke = await the_joke()
-            tweets.append(joke)
+            if joke is not None:
+                tweets.append(joke)
 
             # Source two
             url = "https://backend-omega-seven.vercel.app/api/getjoke"
